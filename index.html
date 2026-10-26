@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="고정지출">
+  <title>고정지출 체크</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="page-title">이번 달</h1>
+  </header>
+
+  <main>
+    <!-- 이번 달 -->
+    <section id="view-month" class="view active">
+      <div class="month-nav">
+        <button class="icon-btn" id="prev-month" aria-label="이전 달">‹</button>
+        <button class="month-label" id="month-label" aria-label="이번 달로 이동"></button>
+        <button class="icon-btn" id="next-month" aria-label="다음 달">›</button>
+      </div>
+
+      <div class="card summary">
+        <div class="summary-main">
+          <span class="muted">이번 달 고정지출</span>
+          <strong id="sum-total">0원</strong>
+        </div>
+        <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+        <div class="summary-row">
+          <div><span class="muted">납부 완료</span><b id="sum-paid">0원</b></div>
+          <div><span class="muted">남은 금액</span><b id="sum-left">0원</b></div>
+        </div>
+      </div>
+
+      <ul class="list" id="month-list"></ul>
+      <div class="empty" id="month-empty" hidden>
+        <p>이번 달에 나갈 고정지출이 없어요.</p>
+        <button class="btn primary" data-action="add">+ 고정지출 추가</button>
+      </div>
+    </section>
+
+    <!-- 항목 관리 -->
+    <section id="view-items" class="view">
+      <div class="card summary compact">
+        <div class="summary-row">
+          <div><span class="muted">월 평균 지출</span><b id="avg-monthly">0원</b></div>
+          <div><span class="muted">연간 합계</span><b id="sum-yearly">0원</b></div>
+        </div>
+      </div>
+      <div id="category-breakdown"></div>
+      <ul class="list" id="item-list"></ul>
+      <div class="empty" id="items-empty" hidden>
+        <p>등록된 고정지출이 없어요.</p>
+        <button class="btn primary" data-action="add">+ 고정지출 추가</button>
+      </div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="view-settings" class="view">
+      <div class="card">
+        <h2>백업</h2>
+        <p class="muted small">데이터는 이 기기의 브라우저에만 저장돼요. 브라우저 데이터를 지우거나 기기를 바꾸기 전에 백업 파일을 저장하세요.</p>
+        <div class="btn-col">
+          <button class="btn" id="export-btn">백업 파일 저장 (JSON)</button>
+          <label class="btn">
+            백업 파일 불러오기
+            <input type="file" id="import-input" accept="application/json,.json" hidden>
+          </label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>데이터</h2>
+        <button class="btn danger" id="reset-btn">모든 데이터 삭제</button>
+      </div>
+      <p class="muted small center" id="app-version"></p>
+    </section>
+  </main>
+
+  <button class="fab" data-action="add" aria-label="고정지출 추가">+</button>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="month"><span class="tab-ico">✓</span>이번 달</button>
+    <button class="tab" data-view="items"><span class="tab-ico">≡</span>항목</button>
+    <button class="tab" data-view="settings"><span class="tab-ico">⚙</span>설정</button>
+  </nav>
+
+  <!-- 추가/수정 시트 -->
+  <dialog id="item-dialog" class="sheet">
+    <form id="item-form" method="dialog">
+      <div class="sheet-head">
+        <button type="button" class="link-btn" data-close>취소</button>
+        <h2 id="dialog-title">고정지출 추가</h2>
+        <button type="submit" class="link-btn strong">저장</button>
+      </div>
+
+      <label class="field">
+        <span>이름</span>
+        <input name="name" required maxlength="40" placeholder="예: 월세, 넷플릭스" autocomplete="off">
+      </label>
+
+      <label class="field">
+        <span>금액 (원)</span>
+        <input name="amount" required inputmode="numeric" placeholder="0" autocomplete="off">
+      </label>
+
+      <div class="field">
+        <span>주기</span>
+        <div class="segmented">
+          <label><input type="radio" name="cycle" value="monthly" checked><span>매월</span></label>
+          <label><input type="radio" name="cycle" value="yearly"><span>매년</span></label>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label class="field" id="month-field" hidden>
+          <span>결제 월</span>
+          <select name="month"></select>
+        </label>
+        <label class="field">
+          <span>결제일</span>
+          <select name="day"></select>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span>분류</span>
+          <input name="category" list="category-options" maxlength="20" placeholder="예: 주거, 구독" autocomplete="off">
+          <datalist id="category-options"></datalist>
+        </label>
+        <label class="field">
+          <span>결제수단</span>
+          <input name="method" list="method-options" maxlength="20" placeholder="예: 신한카드" autocomplete="off">
+          <datalist id="method-options"></datalist>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label class="field">
+          <span>시작 월</span>
+          <input type="month" name="start">
+        </label>
+        <label class="field">
+          <span>종료 월 <small class="muted">(선택)</small></span>
+          <input type="month" name="end">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>메모</span>
+        <input name="memo" maxlength="100" placeholder="선택" autocomplete="off">
+      </label>
+
+      <label class="switch-row">
+        <span>자동이체</span>
+        <input type="checkbox" name="auto" class="switch">
+      </label>
+      <label class="switch-row">
+        <span>사용 중</span>
+        <input type="checkbox" name="active" class="switch" checked>
+      </label>
+
+      <button type="button" class="btn danger wide" id="delete-btn" hidden>삭제</button>
+    </form>
+  </dialog>
+
+  <!-- 금액 변경 시트 (이번 달만) -->
+  <dialog id="pay-dialog" class="sheet">
+    <form id="pay-form" method="dialog">
+      <div class="sheet-head">
+        <button type="button" class="link-btn" data-close>취소</button>
+        <h2 id="pay-title">이번 달 금액</h2>
+        <button type="submit" class="link-btn strong">저장</button>
+      </div>
+      <p class="muted small" id="pay-desc"></p>
+      <label class="field">
+        <span>실제 결제 금액 (원)</span>
+        <input name="amount" required inputmode="numeric" autocomplete="off">
+      </label>
+      <div class="btn-col">
+        <button type="button" class="btn" id="pay-edit-item">항목 정보 수정</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

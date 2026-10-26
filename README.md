@@ -34,13 +34,11 @@
 
 ## 배포 (GitHub Pages)
 
-1. 이 브랜치를 `main`에 머지
-2. GitHub 저장소 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 변경
-3. `main`에 푸시하면 `.github/workflows/pages.yml`이 자동 배포
-   (Actions 탭에서 `Deploy to GitHub Pages`를 수동 실행해도 됨)
-4. 주소: `https://<GitHub 아이디>.github.io/<저장소 이름>/`
+저장소 **기본 브랜치**에 푸시하면 `.github/workflows/pages.yml`이 자동으로 배포합니다.
+자동으로 안 돌았으면 Actions 탭 → `Deploy to GitHub Pages` → **Run workflow**로 수동 실행하면 됩니다.
 
-> 비공개 저장소에서 GitHub Pages를 쓰려면 유료 플랜이 필요합니다. 무료 계정이면 저장소를 공개로 두면 됩니다. 앱 코드만 공개되고, 입력한 지출 데이터는 각자 기기에만 저장되므로 공개되지 않습니다.
+- 주소: https://geunlee00.github.io/claude_cloud/
+- 처음 설정할 때: **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 두는 것을 권장
 
 ## 휴대폰에 설치
 

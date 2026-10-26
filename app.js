@@ -1,14 +1,16 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const STORAGE_KEY = 'fixed-expenses:v1';
+const PREF_KEY = 'fixed-expenses:prefs';
 
 /* ───────── 데이터 ─────────
  * items:    [{ id, name, amount, cycle: 'monthly'|'yearly', month, day, category, method,
- *              start: 'YYYY-MM', end: 'YYYY-MM'|'', memo, auto, active, createdAt }]
+ *              start: 'YYYY-MM', end: 'YYYY-MM'|'', memo, auto, active, icon, color, createdAt }]
  * payments: { 'YYYY-MM': { [itemId]: { paidAt?: ISO 문자열, amount?: 이번 달만 바뀐 금액 } } }
  */
 let state = load();
+let prefs = loadPrefs();
 
 function emptyState() {
   return { version: 1, items: [], payments: {} };
@@ -33,6 +35,14 @@ function save() {
   }
 }
 
+function loadPrefs() {
+  try { return { showPaid: false, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') }; } catch { return { showPaid: false }; }
+}
+
+function savePrefs() {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch { /* 무시 */ }
+}
+
 function isValidState(d) {
   return d && typeof d === 'object' && Array.isArray(d.items) &&
     d.payments && typeof d.payments === 'object' && !Array.isArray(d.payments);
@@ -42,11 +52,63 @@ function uid() {
   return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 }
 
+/* ───────── 아이콘 · 색 ───────── */
+const EMOJIS = ['🏠', '🏢', '💡', '💧', '🔥', '📱', '🌐', '📺', '🎬', '🎵', '▶️', '☁️', '🎮', '📚', '🚗', '🚌',
+  '⛽', '🛡️', '🏥', '💊', '🏦', '💳', '💰', '📈', '🏋️', '🐶', '👶', '🎓', '☕', '📦', '🎁', '⭐'];
+const COLORS = ['#3182f6', '#14b8b8', '#12b886', '#ffc342', '#ff8a3d', '#f04452', '#f45fa8', '#8b5cf6', '#8b95a1'];
+const CATEGORY_PRESETS = ['주거', '통신', '구독', '보험', '대출', '공과금', '교통', '저축', '건강', '교육'];
+
+const KEYWORD_ICONS = [
+  [/넷플릭스|netflix|티빙|웨이브|왓챠|디즈니|쿠팡플레이|영화/i, '🎬', '#f04452'],
+  [/유튜브|youtube/i, '▶️', '#f04452'],
+  [/멜론|스포티파이|spotify|지니|벅스|애플\s?뮤직|플로|음악/i, '🎵', '#12b886'],
+  [/월세|전세|관리비|집/, '🏠', '#3182f6'],
+  [/휴대폰|핸드폰|폰|통신|알뜰/, '📱', '#14b8b8'],
+  [/인터넷|와이파이|wifi/i, '🌐', '#14b8b8'],
+  [/전기/, '💡', '#ffc342'],
+  [/수도/, '💧', '#3182f6'],
+  [/가스|난방/, '🔥', '#ff8a3d'],
+  [/보험/, '🛡️', '#12b886'],
+  [/대출|이자|할부|카드값/, '🏦', '#ff8a3d'],
+  [/적금|저축|청약|투자|연금/, '💰', '#12b886'],
+  [/헬스|필라테스|요가|pt|운동/i, '🏋️', '#f04452'],
+  [/icloud|클라우드|구글\s?원|google\s?one|드롭박스|dropbox/i, '☁️', '#3182f6'],
+  [/게임|닌텐도|플스|playstation|xbox/i, '🎮', '#8b5cf6'],
+  [/주유|자동차|차량|주차/, '🚗', '#3182f6'],
+  [/교통|지하철|버스|기후동행/, '🚌', '#14b8b8'],
+  [/쿠팡|네이버|배민|멤버십|와우/, '📦', '#ff8a3d'],
+  [/학원|강의|교육|학습|책|밀리/, '📚', '#ff8a3d'],
+  [/병원|약|영양제/, '💊', '#f45fa8'],
+  [/gpt|claude|제미나이|gemini|노션|notion/i, '⭐', '#8b5cf6'],
+];
+const CATEGORY_ICONS = {
+  주거: ['🏠', '#3182f6'], 통신: ['📱', '#14b8b8'], 구독: ['📺', '#8b5cf6'], 보험: ['🛡️', '#12b886'],
+  대출: ['🏦', '#ff8a3d'], 공과금: ['💡', '#ffc342'], 교통: ['🚌', '#14b8b8'], 저축: ['💰', '#12b886'],
+  건강: ['🏋️', '#f04452'], 교육: ['📚', '#ff8a3d'],
+};
+
+function suggestIcon(name = '', category = '') {
+  for (const [re, icon, color] of KEYWORD_ICONS) if (re.test(name)) return { icon, color };
+  if (CATEGORY_ICONS[category]) return { icon: CATEGORY_ICONS[category][0], color: CATEGORY_ICONS[category][1] };
+  return { icon: '💳', color: '#8b95a1' };
+}
+
+function looksOf(item) {
+  const s = suggestIcon(item.name, item.category);
+  return { icon: item.icon || s.icon, color: item.color || s.color };
+}
+
+function avatarHtml(item, cls = '') {
+  const { icon, color } = looksOf(item);
+  return `<span class="avatar ${cls}" style="--c:${color}">${icon}</span>`;
+}
+
 /* ───────── 날짜 ───────── */
 const pad = (n) => String(n).padStart(2, '0');
 const ymOf = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
 const parseYm = (ym) => { const [y, m] = ym.split('-').map(Number); return { y, m }; };
 const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 function addMonths(ym, delta) {
   const { y, m } = parseYm(ym);
@@ -64,7 +126,9 @@ function dueDate(item, ym) {
   return new Date(y, m - 1, Math.min(item.day, daysInMonth(y, m)));
 }
 
+const daysUntil = (date) => Math.round((date - today()) / 86400000);
 const dayLabel = (day) => (day >= 31 ? '말일' : `${day}일`);
+const dateLabel = (d) => `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAYS[d.getDay()]})`;
 
 /* ───────── 계산 ───────── */
 function isInRange(item, ym) {
@@ -82,6 +146,8 @@ function isDueIn(item, ym) {
 function paymentOf(ym, id) {
   return state.payments[ym]?.[id];
 }
+
+const isPaid = (ym, id) => !!paymentOf(ym, id)?.paidAt;
 
 function amountFor(item, ym) {
   const p = paymentOf(ym, item.id);
@@ -109,29 +175,30 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+const icon = (name) => `<svg><use href="#i-${name}"/></svg>`;
+
 /* ───────── 화면 ───────── */
 const $ = (sel) => document.querySelector(sel);
-const CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>';
-const VIEW_TITLES = { month: '이번 달', items: '고정지출 항목', settings: '설정' };
 
-let currentView = 'month';
 let viewYm = ymOf(new Date());
+let selectedDay = null;
+let popId = null;
 
 function render() {
   renderMonth();
   renderItems();
-  refreshDatalists();
+  renderSettings();
 }
 
-function statusBadge(item, ym, paid) {
-  if (paid) return '';
+function badgeFor(item, ym) {
+  if (isPaid(ym, item.id)) return '';
   const nowYm = ymOf(new Date());
-  if (ym < nowYm) return '<span class="badge overdue">미납</span>';
+  if (ym < nowYm) return '<span class="badge red">미납</span>';
   if (ym > nowYm) return '';
-  const diff = Math.round((dueDate(item, ym) - today()) / 86400000);
-  if (diff < 0) return `<span class="badge overdue">${-diff}일 지남</span>`;
-  if (diff === 0) return '<span class="badge today">오늘</span>';
-  if (diff <= 3) return `<span class="badge soon">D-${diff}</span>`;
+  const diff = daysUntil(dueDate(item, ym));
+  if (diff < 0) return `<span class="badge red">${-diff}일 지남</span>`;
+  if (diff === 0) return '<span class="badge blue">오늘</span>';
+  if (diff <= 3) return `<span class="badge orange">D-${diff}</span>`;
   return '';
 }
 
@@ -139,61 +206,178 @@ function monthRow(item, ym) {
   const p = paymentOf(ym, item.id);
   const paid = !!p?.paidAt;
   const amount = amountFor(item, ym);
-  const due = dueDate(item, ym);
   const changed = p && typeof p.amount === 'number' && p.amount !== item.amount;
-  const sub = [item.category, item.method].filter(Boolean).map(escapeHtml).join(' · ');
-  const when = paid
+  const sub = [item.method, item.auto && '자동이체', item.cycle === 'yearly' && '연 1회'].filter(Boolean).map(escapeHtml).join(' · ');
+  const due = dueDate(item, ym);
+  const meta = paid
     ? `${new Date(p.paidAt).getMonth() + 1}/${new Date(p.paidAt).getDate()} 완료`
-    : `${due.getMonth() + 1}/${due.getDate()}${item.day >= 31 ? ' (말일)' : ''}`;
+    : `${due.getMonth() + 1}/${due.getDate()} (${WEEKDAYS[due.getDay()]})`;
 
   return `
-    <li class="row ${paid ? 'paid' : ''}" data-id="${item.id}">
-      <button class="check ${paid ? 'on' : ''}" data-act="toggle" aria-label="${escapeHtml(item.name)} ${paid ? '완료 취소' : '완료로 표시'}" aria-pressed="${paid}">${CHECK_SVG}</button>
-      <button class="row-main" data-act="pay">
-        <div class="row-text">
-          <div class="row-title">${escapeHtml(item.name)}${statusBadge(item, ym, paid)}${item.cycle === 'yearly' ? '<span class="badge yearly">연</span>' : ''}${item.auto ? '<span class="badge auto">자동</span>' : ''}</div>
-          ${sub ? `<div class="row-sub">${sub}</div>` : ''}
-        </div>
-        <div class="row-right">
-          <div class="row-amount">${won(amount)}${changed ? '<span class="changed">변경</span>' : ''}</div>
-          <div class="row-when">${when}</div>
-        </div>
-      </button>
+    <li class="row ${paid ? 'paid' : ''}" data-id="${item.id}" data-act="pay">
+      ${avatarHtml(item)}
+      <div class="row-text">
+        <div class="row-title"><span class="t">${escapeHtml(item.name)}</span></div>
+        <div class="row-sub">${badgeFor(item, ym)}<span>${sub || escapeHtml(item.category) || '&nbsp;'}</span></div>
+      </div>
+      <div class="row-right">
+        <div class="row-amount ${changed ? 'changed' : ''}">${won(amount)}</div>
+        <div class="row-meta">${meta}</div>
+      </div>
+      <button class="check ${paid ? 'on' : ''} ${popId === item.id ? 'pop' : ''}" data-act="toggle"
+        aria-label="${escapeHtml(item.name)} ${paid ? '완료 취소' : '완료로 표시'}" aria-pressed="${paid}">${icon('check')}</button>
     </li>`;
+}
+
+function groupHtml(title, items, ym, { warn = false, total = true } = {}) {
+  const sum = items.reduce((s, it) => s + amountFor(it, ym), 0);
+  return `
+    <section class="group">
+      <div class="group-head"><h3 class="${warn ? 'warn' : ''}">${title}</h3>${total ? `<span>${won(sum)}</span>` : ''}</div>
+      <ul class="list">${items.map((it) => monthRow(it, ym)).join('')}</ul>
+    </section>`;
 }
 
 function renderMonth() {
   const { y, m } = parseYm(viewYm);
-  const isNow = viewYm === ymOf(new Date());
-  $('#month-label').textContent = `${y}년 ${m}월${isNow ? '' : ' ↺'}`;
-  $('#page-title').textContent = currentView === 'month' ? (isNow ? '이번 달' : `${m}월`) : VIEW_TITLES[currentView];
+  const nowYm = ymOf(new Date());
+  const isNow = viewYm === nowYm;
+  $('#month-label').innerHTML = `${m}월<small>${y}</small>`;
+  $('#hero-label').textContent = isNow ? '이번 달 남은 금액' : `${m}월 남은 금액`;
 
   const items = itemsForMonth(viewYm);
-  const isPaid = (it) => !!paymentOf(viewYm, it.id)?.paidAt;
-  const unpaid = items.filter((it) => !isPaid(it));
-  const paid = items.filter(isPaid);
-
+  const unpaid = items.filter((it) => !isPaid(viewYm, it.id));
+  const paid = items.filter((it) => isPaid(viewYm, it.id));
   const total = items.reduce((s, it) => s + amountFor(it, viewYm), 0);
   const paidSum = paid.reduce((s, it) => s + amountFor(it, viewYm), 0);
-  $('#sum-total').textContent = won(total);
-  $('#sum-paid').textContent = `${won(paidSum)} (${paid.length}/${items.length})`;
+
+  // 요약
   $('#sum-left').textContent = won(total - paidSum);
-  $('#progress-bar').style.width = total ? `${(paidSum / total) * 100}%` : '0';
+  $('#sum-total').textContent = items.length ? `총 ${won(total)} 중 ${won(paidSum)} 냈어요` : '등록된 고정지출이 없어요';
+  const pct = total ? (paidSum / total) * 100 : 0;
+  $('#ring-fill').style.strokeDasharray = `${pct} 100`;
+  $('#ring-fill').style.opacity = pct ? 1 : 0; // 0%일 때 둥근 끝점만 점처럼 보이는 것 방지
+  $('#ring-count').textContent = `${paid.length}/${items.length}`;
+  $('#ring').classList.toggle('done', items.length > 0 && !unpaid.length);
 
-  let html = '';
-  if (unpaid.length) html += unpaid.map((it) => monthRow(it, viewYm)).join('');
-  if (paid.length) {
-    if (unpaid.length) html += `</ul><div class="section-label">완료 ${paid.length}건</div><ul class="list">`;
-    html += paid.map((it) => monthRow(it, viewYm)).join('');
+  // 다음 결제
+  const next = $('#next-pay');
+  next.hidden = !items.length;
+  next.className = 'next-pay';
+  if (items.length && !unpaid.length) {
+    next.classList.add('all-done');
+    next.dataset.id = '';
+    next.innerHTML = `🎉 ${isNow ? '이번 달' : `${m}월`} 고정지출을 모두 냈어요`;
+  } else if (unpaid.length) {
+    const it = unpaid[0];
+    const due = dueDate(it, viewYm);
+    const diff = daysUntil(due);
+    let label;
+    let warn = false;
+    if (viewYm < nowYm) { label = '아직 안 낸 결제'; warn = true; }
+    else if (viewYm > nowYm) label = `첫 결제 · ${dateLabel(due)}`;
+    else if (diff < 0) { label = `결제일 ${-diff}일 지남`; warn = true; }
+    else if (diff === 0) label = '오늘 결제';
+    else label = `다음 결제 · ${diff === 1 ? '내일' : `${diff}일 후`}`;
+    next.dataset.id = it.id;
+    next.innerHTML = `
+      ${avatarHtml(it)}
+      <span class="np-text"><span class="np-label ${warn ? 'warn' : ''}">${label}</span><span class="np-name">${escapeHtml(it.name)}</span></span>
+      <span class="np-amount">${won(amountFor(it, viewYm))}</span>
+      <svg class="chev"><use href="#i-right"/></svg>`;
   }
-  // 섹션 구분을 위해 컨테이너를 통째로 교체
-  const wrap = document.createElement('div');
-  wrap.id = 'month-list-wrap';
-  wrap.innerHTML = `<ul class="list" id="month-list">${html}</ul>`;
-  const old = $('#month-list-wrap') || $('#month-list');
-  old.replaceWith(wrap);
 
+  renderCalendar(items);
+  $('#view-month .hero').hidden = !state.items.length;
+  $('.calendar').hidden = !items.length;
+
+  // 날짜 필터
+  if (selectedDay && !items.some((it) => dueDate(it, viewYm).getDate() === selectedDay)) selectedDay = null;
+  const filtered = selectedDay ? items.filter((it) => dueDate(it, viewYm).getDate() === selectedDay) : null;
+  const chip = $('#day-filter');
+  chip.hidden = !filtered;
+  if (filtered) {
+    chip.innerHTML = `<span>${m}월 ${selectedDay}일 결제 ${filtered.length}건 · ${won(filtered.reduce((s, it) => s + amountFor(it, viewYm), 0))}</span>
+      <button data-act="clear-day" aria-label="필터 해제">${icon('x')}</button>`;
+  }
+
+  // 목록
+  let html = '';
+  if (filtered) {
+    html = `<ul class="list" style="margin-top:12px">${filtered.map((it) => monthRow(it, viewYm)).join('')}</ul>`;
+  } else {
+    const overdue = isNow ? unpaid.filter((it) => daysUntil(dueDate(it, viewYm)) < 0) : viewYm < nowYm ? unpaid : [];
+    const upcoming = unpaid.filter((it) => !overdue.includes(it));
+    if (overdue.length) html += groupHtml(viewYm < nowYm ? `미납 ${overdue.length}건` : `결제일 지남 ${overdue.length}건`, overdue, viewYm, { warn: true });
+    if (upcoming.length) html += groupHtml(`결제 예정 ${upcoming.length}건`, upcoming, viewYm);
+    if (paid.length) {
+      if (prefs.showPaid || !unpaid.length) html += groupHtml(`완료 ${paid.length}건`, paid, viewYm);
+      if (unpaid.length) {
+        html += `<button class="collapse-btn ${prefs.showPaid ? 'open' : ''}" data-act="toggle-paid">
+          ${prefs.showPaid ? '완료한 결제 접기' : `완료한 결제 ${paid.length}건 보기`}${icon('down')}</button>`;
+      }
+    }
+  }
+  $('#month-groups').innerHTML = html;
   $('#month-empty').hidden = items.length > 0;
+  popId = null;
+}
+
+function renderCalendar(items) {
+  const { y, m } = parseYm(viewYm);
+  const first = new Date(y, m - 1, 1).getDay();
+  const days = daysInMonth(y, m);
+  const t = today();
+  const nowYm = ymOf(t);
+
+  const byDay = new Map();
+  for (const it of items) {
+    const d = dueDate(it, viewYm).getDate();
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d).push(it);
+  }
+
+  let html = '<span class="cal-day blank"></span>'.repeat(first);
+  for (let d = 1; d <= days; d++) {
+    const dow = (first + d - 1) % 7;
+    const list = byDay.get(d) || [];
+    const isToday = viewYm === nowYm && d === t.getDate();
+    const isPast = viewYm < nowYm || (viewYm === nowYm && d < t.getDate());
+    const dots = list.slice(0, 3).map((it) => {
+      const done = isPaid(viewYm, it.id);
+      return `<i class="dot ${done ? 'paid' : isPast ? 'overdue' : ''}"></i>`;
+    }).join('');
+    const cls = ['cal-day', dow === 0 && 'sun', dow === 6 && 'sat', isToday && 'today', isPast && 'past',
+      list.length && 'has', selectedDay === d && 'selected'].filter(Boolean).join(' ');
+    html += list.length
+      ? `<button class="${cls}" data-act="day" data-day="${d}" aria-label="${m}월 ${d}일 결제 ${list.length}건"><span class="num">${d}</span><span class="dots">${dots}</span></button>`
+      : `<span class="${cls}"><span class="num">${d}</span></span>`;
+  }
+  $('#cal-grid').innerHTML = html;
+}
+
+function itemRow(it, nowYm) {
+  const ended = it.end && it.end < nowYm;
+  const schedule = it.cycle === 'yearly' ? `매년 ${it.month}월 ${dayLabel(it.day)}` : `매월 ${dayLabel(it.day)}`;
+  const sub = [schedule, it.method].filter(Boolean).map(escapeHtml).join(' · ');
+  let meta = '';
+  if (!it.active) meta = '사용 안 함';
+  else if (ended) meta = `${it.end.replace('-', '.')} 종료`;
+  else if (it.start && it.start > nowYm) meta = `${it.start.replace('-', '.')}부터`;
+  else if (it.cycle === 'yearly') meta = `월 ${won(it.amount / 12)}`;
+  else if (it.end) meta = `~${it.end.replace('-', '.')}`;
+  return `
+    <li class="row ${!it.active || ended ? 'off' : ''}" data-id="${it.id}" data-act="edit">
+      ${avatarHtml(it)}
+      <div class="row-text">
+        <div class="row-title"><span class="t">${escapeHtml(it.name)}</span></div>
+        <div class="row-sub"><span>${sub}</span></div>
+      </div>
+      <div class="row-right">
+        <div class="row-amount">${won(it.amount)}</div>
+        ${meta ? `<div class="row-meta">${meta}</div>` : ''}
+      </div>
+    </li>`;
 }
 
 function renderItems() {
@@ -201,7 +385,7 @@ function renderItems() {
   const current = state.items.filter((it) => it.active && isInRange(it, nowYm));
   const avg = current.reduce((s, it) => s + monthlyEquivalent(it), 0);
   $('#avg-monthly').textContent = won(avg);
-  $('#sum-yearly').textContent = won(avg * 12);
+  $('#sum-yearly').textContent = current.length ? `1년이면 ${won(avg * 12)} · ${current.length}개 항목` : '사용 중인 항목이 없어요';
 
   // 분류별 (월 환산)
   const byCat = new Map();
@@ -210,99 +394,73 @@ function renderItems() {
     byCat.set(k, (byCat.get(k) || 0) + monthlyEquivalent(it));
   }
   const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
-  $('#category-breakdown').innerHTML = cats.length > 1 ? `
-    <div class="card">
-      <h2>분류별 <small class="muted">(월 환산)</small></h2>
-      <div class="breakdown">
-        ${cats.map(([name, v]) => `
-          <div class="breakdown-row">
-            <span>${escapeHtml(name)} <span class="muted small">${Math.round((v / avg) * 100)}%</span></span>
-            <b>${won(v)}</b>
-            <div class="bar"><i style="width:${(v / cats[0][1]) * 100}%"></i></div>
-          </div>`).join('')}
-      </div>
-    </div>` : '';
+  const colorOf = (i) => COLORS[i % COLORS.length];
+  $('#stack-bar').innerHTML = cats.map(([, v], i) => `<i style="flex:${v};background:${colorOf(i)}"></i>`).join('');
+  $('#legend').innerHTML = cats.map(([name, v], i) => `
+    <div><span class="sw" style="background:${colorOf(i)}"></span><span class="nm">${escapeHtml(name)}</span>
+    <span class="pc">${Math.round((v / avg) * 100)}%</span></div>`).join('');
 
-  const sorted = [...state.items].sort((a, b) => {
-    const aOn = a.active && (!a.end || a.end >= nowYm);
-    const bOn = b.active && (!b.end || b.end >= nowYm);
-    return (bOn - aOn) || a.day - b.day || a.name.localeCompare(b.name, 'ko');
-  });
+  const sorter = (a, b) => a.day - b.day || a.name.localeCompare(b.name, 'ko');
+  const on = state.items.filter((it) => it.active && !(it.end && it.end < nowYm)).sort(sorter);
+  const off = state.items.filter((it) => !on.includes(it)).sort(sorter);
 
-  $('#item-list').innerHTML = sorted.map((it) => {
-    const ended = it.end && it.end < nowYm;
-    const off = !it.active || ended;
-    const schedule = it.cycle === 'yearly' ? `매년 ${it.month}월 ${dayLabel(it.day)}` : `매월 ${dayLabel(it.day)}`;
-    const sub = [schedule, it.category, it.method].filter(Boolean).map(escapeHtml).join(' · ');
-    let note = '';
-    if (!it.active) note = '사용 안 함';
-    else if (ended) note = '종료됨';
-    else if (it.end) note = `~${it.end.replace('-', '.')}`;
-    else if (it.start && it.start > nowYm) note = `${it.start.replace('-', '.')}~`;
-    return `
-      <li class="row ${off ? 'inactive' : ''}" data-id="${it.id}">
-        <button class="row-main" data-act="edit">
-          <div class="day-chip">${it.day >= 31 ? '말일' : it.day}</div>
-          <div class="row-text">
-            <div class="row-title">${escapeHtml(it.name)}${it.auto ? '<span class="badge auto">자동</span>' : ''}</div>
-            <div class="row-sub">${sub}</div>
-          </div>
-          <div class="row-right">
-            <div class="row-amount">${won(it.amount)}</div>
-            ${note ? `<div class="row-when">${note}</div>` : ''}
-          </div>
-        </button>
-      </li>`;
-  }).join('');
-
+  let html = '';
+  if (on.length) html += `<section class="group"><div class="group-head"><h3>사용 중 ${on.length}개</h3></div><ul class="list">${on.map((it) => itemRow(it, nowYm)).join('')}</ul></section>`;
+  if (off.length) html += `<section class="group"><div class="group-head"><h3>종료 · 사용 안 함 ${off.length}개</h3></div><ul class="list">${off.map((it) => itemRow(it, nowYm)).join('')}</ul></section>`;
+  $('#item-groups').innerHTML = html;
+  $('#items-hero').hidden = !state.items.length;
   $('#items-empty').hidden = state.items.length > 0;
 }
 
-function refreshDatalists() {
-  const uniq = (key) => [...new Set(state.items.map((it) => it[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
-  const defaults = ['주거', '통신', '구독', '보험', '대출', '공과금', '교통', '저축'];
-  const cats = [...new Set([...uniq('category'), ...defaults])];
-  $('#category-options').innerHTML = cats.map((c) => `<option value="${escapeHtml(c)}">`).join('');
-  $('#method-options').innerHTML = uniq('method').map((c) => `<option value="${escapeHtml(c)}">`).join('');
+function renderSettings() {
+  const nowYm = ymOf(new Date());
+  const items = itemsForMonth(nowYm);
+  const paid = items.filter((it) => isPaid(nowYm, it.id)).length;
+  $('#stats').innerHTML = `
+    <div><b>${state.items.filter((it) => it.active).length}</b><span>사용 중 항목</span></div>
+    <div><b>${items.length ? Math.round((paid / items.length) * 100) : 0}%</b><span>이번 달 완료</span></div>
+    <div><b>${Object.keys(state.payments).length}</b><span>기록한 달</span></div>`;
 }
 
 function switchView(view) {
-  currentView = view;
   document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
   document.body.className = `view-${view}`;
-  renderMonth();
   window.scrollTo(0, 0);
 }
 
 /* ───────── 완료 체크 ───────── */
+function setPaid(id, ym, paid) {
+  const item = state.items.find((it) => it.id === id);
+  const month = (state.payments[ym] ||= {});
+  const p = (month[id] ||= {});
+  if (paid) {
+    // 지난 달을 나중에 체크하면 결제일 날짜로 기록, 이번 달이면 오늘로 기록
+    p.paidAt = (ym < ymOf(new Date()) ? dueDate(item, ym) : new Date()).toISOString();
+  } else {
+    delete p.paidAt;
+  }
+  cleanupPayment(ym, id);
+}
+
 function togglePaid(id) {
   const item = state.items.find((it) => it.id === id);
   if (!item) return;
-  const month = (state.payments[viewYm] ||= {});
-  const prev = month[id] ? { ...month[id] } : undefined;
-  const p = (month[id] ||= {});
-
-  if (p.paidAt) {
-    delete p.paidAt;
-  } else {
-    // 지난 달을 나중에 체크하면 결제일 날짜로 기록, 이번 달이면 오늘로 기록
-    const due = dueDate(item, viewYm);
-    p.paidAt = (viewYm < ymOf(new Date()) ? due : new Date()).toISOString();
-  }
-  cleanupPayment(viewYm, id);
-  save();
-  renderMonth();
-
-  if (navigator.vibrate) navigator.vibrate(10);
-  const nowPaid = !!paymentOf(viewYm, id)?.paidAt;
   const ym = viewYm;
-  toast(`${item.name} ${nowPaid ? '완료' : '완료 취소'}`, () => {
-    const m = (state.payments[ym] ||= {});
-    if (prev) m[id] = prev; else delete m[id];
+  const prev = paymentOf(ym, id) ? { ...paymentOf(ym, id) } : undefined;
+  const nowPaid = !isPaid(ym, id);
+  setPaid(id, ym, nowPaid);
+  save();
+  if (nowPaid) popId = id;
+  render();
+  if (navigator.vibrate) navigator.vibrate(nowPaid ? 12 : 6);
+
+  toast(nowPaid ? `${item.name} 완료했어요` : `${item.name} 완료를 취소했어요`, () => {
+    const month = (state.payments[ym] ||= {});
+    if (prev) month[id] = prev; else delete month[id];
     cleanupPayment(ym, id);
     save();
-    renderMonth();
+    render();
   });
 }
 
@@ -314,19 +472,57 @@ function cleanupPayment(ym, id) {
   if (!Object.keys(month).length) delete state.payments[ym];
 }
 
+/* ───────── 바텀 시트 공통 ───────── */
+function openSheet(dlg) {
+  dlg.showModal();
+  dlg.scrollTop = 0;
+}
+
+document.querySelectorAll('dialog').forEach((dlg) => {
+  dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+});
+
 /* ───────── 항목 추가/수정 ───────── */
 const itemDialog = $('#item-dialog');
 const itemForm = $('#item-form');
 let editingId = null;
+let pickedIcon = null; // 사용자가 직접 고른 아이콘/색 (없으면 이름·분류로 자동 추천)
+let pickedColor = null;
 
 function fillSelectOptions() {
   itemForm.month.innerHTML = Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">${i + 1}월</option>`).join('');
   itemForm.day.innerHTML = Array.from({ length: 31 }, (_, i) =>
-    `<option value="${i + 1}">${i + 1 === 31 ? '말일 (31일)' : `${i + 1}일`}</option>`).join('');
+    `<option value="${i + 1}">${i + 1 === 31 ? '말일' : `${i + 1}일`}</option>`).join('');
 }
 
 function syncCycleUI() {
   $('#month-field').hidden = itemForm.cycle.value !== 'yearly';
+}
+
+function currentLooks() {
+  const s = suggestIcon(itemForm.name.value, itemForm.category.value.trim());
+  return { icon: pickedIcon || s.icon, color: pickedColor || s.color };
+}
+
+function syncIconUI() {
+  const { icon: ic, color } = currentLooks();
+  const btn = $('#icon-toggle');
+  btn.textContent = ic;
+  btn.style.setProperty('--c', color);
+  $('#emoji-grid').innerHTML = EMOJIS.map((e) => `<button type="button" class="${e === ic ? 'on' : ''}" data-emoji="${e}">${e}</button>`).join('');
+  $('#color-row').innerHTML = COLORS.map((c) => `<button type="button" class="${c === color ? 'on' : ''}" style="--c:${c}" data-color="${c}" aria-label="색 ${c}"></button>`).join('');
+}
+
+function chipsHtml(values, current) {
+  return values.map((v) => `<button type="button" class="chip ${v === current ? 'on' : ''}" data-value="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('');
+}
+
+function syncChips() {
+  const uniq = (key) => [...new Set(state.items.map((it) => it[key]).filter(Boolean))];
+  const cats = [...new Set([...uniq('category'), ...CATEGORY_PRESETS])];
+  $('#category-chips').innerHTML = chipsHtml(cats, itemForm.category.value.trim());
+  $('#method-chips').innerHTML = chipsHtml(uniq('method'), itemForm.method.value.trim());
 }
 
 function openItemDialog(id = null) {
@@ -348,21 +544,51 @@ function openItemDialog(id = null) {
   itemForm.memo.value = it?.memo ?? '';
   itemForm.auto.checked = it?.auto ?? false;
   itemForm.active.checked = it?.active ?? true;
+  pickedIcon = it?.icon ?? null;
+  pickedColor = it?.color ?? null;
+  $('#icon-picker').hidden = true;
   syncCycleUI();
+  syncIconUI();
+  syncChips();
 
-  itemDialog.showModal();
-  itemDialog.scrollTop = 0;
-  if (!it) setTimeout(() => itemForm.name.focus(), 50);
+  openSheet(itemDialog);
+  if (!it) setTimeout(() => itemForm.name.focus(), 350);
 }
 
 itemForm.amount.addEventListener('input', (e) => { e.target.value = formatNumberInput(e.target.value); });
 itemForm.querySelectorAll('input[name="cycle"]').forEach((el) => el.addEventListener('change', syncCycleUI));
+itemForm.name.addEventListener('input', syncIconUI);
+itemForm.category.addEventListener('input', () => { syncIconUI(); syncChips(); });
+itemForm.method.addEventListener('input', syncChips);
+
+$('#icon-toggle').addEventListener('click', () => { $('#icon-picker').hidden = !$('#icon-picker').hidden; });
+$('#emoji-grid').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-emoji]');
+  if (b) { pickedIcon = b.dataset.emoji; syncIconUI(); }
+});
+$('#color-row').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-color]');
+  if (b) { pickedColor = b.dataset.color; syncIconUI(); }
+});
+$('#category-chips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-value]');
+  if (!b) return;
+  itemForm.category.value = itemForm.category.value === b.dataset.value ? '' : b.dataset.value;
+  syncChips();
+  syncIconUI();
+});
+$('#method-chips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-value]');
+  if (!b) return;
+  itemForm.method.value = itemForm.method.value === b.dataset.value ? '' : b.dataset.value;
+  syncChips();
+});
 
 itemForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = itemForm.name.value.trim();
   const amount = Number(digitsOnly(itemForm.amount.value));
-  if (!name) return itemForm.name.focus();
+  if (!name) { toast('이름을 입력해 주세요'); return itemForm.name.focus(); }
   if (!amount) { toast('금액을 입력해 주세요'); return itemForm.amount.focus(); }
   const start = itemForm.start.value;
   const end = itemForm.end.value;
@@ -381,6 +607,8 @@ itemForm.addEventListener('submit', (e) => {
     memo: itemForm.memo.value.trim(),
     auto: itemForm.auto.checked,
     active: itemForm.active.checked,
+    icon: pickedIcon || '',
+    color: pickedColor || '',
   };
 
   if (editingId) {
@@ -391,7 +619,7 @@ itemForm.addEventListener('submit', (e) => {
   save();
   itemDialog.close();
   render();
-  toast(editingId ? '수정했어요' : '추가했어요');
+  toast(editingId ? '수정했어요' : `${name} 추가했어요`);
 });
 
 $('#delete-btn').addEventListener('click', () => {
@@ -408,47 +636,78 @@ $('#delete-btn').addEventListener('click', () => {
   toast('삭제했어요');
 });
 
-/* ───────── 이번 달 금액 변경 ───────── */
+/* ───────── 이번 달 항목 시트 ───────── */
 const payDialog = $('#pay-dialog');
 const payForm = $('#pay-form');
 let payingId = null;
+
+function syncPayHint() {
+  const it = state.items.find((x) => x.id === payingId);
+  if (!it) return;
+  const typed = Number(digitsOnly(payForm.amount.value));
+  const saved = amountFor(it, viewYm);
+  const hint = $('#pay-hint');
+  hint.innerHTML = `<span>기본 금액 ${won(it.amount)}</span>` +
+    (payForm.amount.value && typed !== saved ? '<button type="button" data-act="save-amount">금액만 저장</button>' : '');
+}
+
+function saveAmount() {
+  const it = state.items.find((x) => x.id === payingId);
+  const typed = Number(digitsOnly(payForm.amount.value));
+  const month = (state.payments[viewYm] ||= {});
+  const p = (month[payingId] ||= {});
+  if (!payForm.amount.value || typed === it.amount) delete p.amount; else p.amount = typed;
+  cleanupPayment(viewYm, payingId);
+}
 
 function openPayDialog(id) {
   const it = state.items.find((x) => x.id === id);
   if (!it) return;
   payingId = id;
   const { m } = parseYm(viewYm);
+  const due = dueDate(it, viewYm);
+  const paid = isPaid(viewYm, id);
+  const { icon: ic, color } = looksOf(it);
+  const av = $('#pay-avatar');
+  av.textContent = ic;
+  av.style.setProperty('--c', color);
   $('#pay-title').textContent = it.name;
-  $('#pay-desc').textContent = `${m}월에만 적용돼요. 기본 금액은 ${won(it.amount)}이에요.${it.memo ? `\n메모: ${it.memo}` : ''}`;
+  $('#pay-desc').textContent = [dateLabel(due), it.method, it.auto && '자동이체'].filter(Boolean).join(' · ');
+  $('#pay-amount-label').textContent = `${m}월 결제 금액`;
   payForm.amount.value = formatNumberInput(amountFor(it, viewYm));
-  payDialog.showModal();
+  const memo = $('#pay-memo');
+  memo.hidden = !it.memo;
+  memo.textContent = it.memo ? `📝 ${it.memo}` : '';
+  const submit = $('#pay-submit');
+  submit.textContent = paid ? '완료 취소' : '완료로 표시';
+  submit.classList.toggle('done', paid);
+  syncPayHint();
+  openSheet(payDialog);
 }
 
-payForm.amount.addEventListener('input', (e) => { e.target.value = formatNumberInput(e.target.value); });
+payForm.amount.addEventListener('input', (e) => { e.target.value = formatNumberInput(e.target.value); syncPayHint(); });
 
 payForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const it = state.items.find((x) => x.id === payingId);
-  if (!it) return payDialog.close();
-  const amount = Number(digitsOnly(payForm.amount.value));
-  const month = (state.payments[viewYm] ||= {});
-  const p = (month[payingId] ||= {});
-  if (amount === it.amount || !payForm.amount.value) delete p.amount; else p.amount = amount;
-  cleanupPayment(viewYm, payingId);
+  if (!state.items.some((x) => x.id === payingId)) return payDialog.close();
+  saveAmount();
   save();
   payDialog.close();
-  renderMonth();
+  togglePaid(payingId);
+});
+
+$('#pay-hint').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-act="save-amount"]')) return;
+  saveAmount();
+  save();
+  payDialog.close();
+  render();
+  toast('이번 달 금액을 바꿨어요');
 });
 
 $('#pay-edit-item').addEventListener('click', () => {
   payDialog.close();
   openItemDialog(payingId);
-});
-
-// 시트 공통: 취소 버튼, 바깥 영역 탭하면 닫기
-document.querySelectorAll('dialog').forEach((dlg) => {
-  dlg.querySelector('[data-close]').addEventListener('click', () => dlg.close());
-  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 });
 
 /* ───────── 백업 ───────── */
@@ -505,7 +764,7 @@ $('#reset-btn').addEventListener('click', () => {
 let toastTimer;
 function toast(msg, undo) {
   const el = $('#toast');
-  el.innerHTML = `<span>${escapeHtml(msg)}</span>${undo ? '<button type="button">실행 취소</button>' : ''}`;
+  el.innerHTML = `<span>${escapeHtml(msg)}</span>${undo ? '<button type="button">되돌리기</button>' : ''}`;
   if (undo) el.querySelector('button').addEventListener('click', () => { undo(); el.classList.remove('show'); });
   el.classList.add('show');
   clearTimeout(toastTimer);
@@ -514,33 +773,52 @@ function toast(msg, undo) {
 
 /* ───────── 이벤트 ───────── */
 document.addEventListener('click', (e) => {
-  const add = e.target.closest('[data-action="add"]');
-  if (add) return openItemDialog();
+  if (e.target.closest('dialog')) return;
+
+  if (e.target.closest('[data-action="add"]')) return openItemDialog();
 
   const tab = e.target.closest('.tab');
   if (tab) return switchView(tab.dataset.view);
 
+  const next = e.target.closest('#next-pay');
+  if (next) { if (next.dataset.id) openPayDialog(next.dataset.id); return; }
+
   const act = e.target.closest('[data-act]');
   if (!act) return;
   const id = act.closest('[data-id]')?.dataset.id;
-  if (act.dataset.act === 'toggle') togglePaid(id);
-  else if (act.dataset.act === 'pay') openPayDialog(id);
-  else if (act.dataset.act === 'edit') openItemDialog(id);
+  switch (act.dataset.act) {
+    case 'toggle': togglePaid(id); break;
+    case 'pay': openPayDialog(id); break;
+    case 'edit': openItemDialog(id); break;
+    case 'day': {
+      const d = Number(act.dataset.day);
+      selectedDay = selectedDay === d ? null : d;
+      renderMonth();
+      break;
+    }
+    case 'clear-day': selectedDay = null; renderMonth(); break;
+    case 'toggle-paid': prefs.showPaid = !prefs.showPaid; savePrefs(); renderMonth(); break;
+  }
 });
 
-$('#prev-month').addEventListener('click', () => { viewYm = addMonths(viewYm, -1); renderMonth(); });
-$('#next-month').addEventListener('click', () => { viewYm = addMonths(viewYm, 1); renderMonth(); });
-$('#month-label').addEventListener('click', () => { viewYm = ymOf(new Date()); renderMonth(); });
+function goMonth(ym) {
+  viewYm = ym;
+  selectedDay = null;
+  renderMonth();
+}
+
+$('#prev-month').addEventListener('click', () => goMonth(addMonths(viewYm, -1)));
+$('#next-month').addEventListener('click', () => goMonth(addMonths(viewYm, 1)));
+$('#month-label').addEventListener('click', () => goMonth(ymOf(new Date())));
 
 // 앱을 다시 열었을 때 날짜가 바뀌었으면 D-day 갱신
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { state = load(); render(); }
+  if (document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) { state = load(); render(); }
 });
 
 /* ───────── 시작 ───────── */
 fillSelectOptions();
-document.body.className = 'view-month';
-$('#app-version').textContent = `v${APP_VERSION}`;
+$('#app-version').textContent = `고정지출 체크 v${APP_VERSION}`;
 render();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

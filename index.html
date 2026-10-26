@@ -47,20 +47,9 @@
       </header>
 
       <div class="card hero">
-        <div class="hero-top">
-          <div class="hero-text">
-            <span class="label" id="hero-label">이번 달 남은 금액</span>
-            <strong class="big-num" id="sum-left">0원</strong>
-            <span class="hero-sub" id="sum-total"></span>
-          </div>
-          <div class="ring" id="ring">
-            <svg viewBox="0 0 80 80">
-              <circle class="ring-track" cx="40" cy="40" r="34"/>
-              <circle class="ring-fill" id="ring-fill" cx="40" cy="40" r="34" pathLength="100"/>
-            </svg>
-            <div class="ring-text"><b id="ring-count">0/0</b><span>완료</span></div>
-          </div>
-        </div>
+        <span class="label" id="hero-label">이번 달 고정지출</span>
+        <strong class="big-num" id="sum-total">0원</strong>
+        <div class="hero-sub" id="hero-sub"></div>
         <button class="next-pay" id="next-pay" hidden></button>
       </div>
 
@@ -220,7 +209,7 @@
 
       <div class="toggle-card">
         <label class="switch-row">
-          <span><b>자동이체</b><small>체크할 때 참고용으로 표시돼요</small></span>
+          <span><b>자동이체</b><small>목록에 자동이체로 표시돼요</small></span>
           <input type="checkbox" name="auto" class="switch">
         </label>
         <label class="switch-row">
@@ -250,6 +239,7 @@
       </div>
       <label class="amount-field">
         <span class="field-label" id="pay-amount-label">이번 달 금액</span>
+        <small class="field-desc">이 달에만 적용돼요. 매달 바뀌었다면 수정을 눌러 주세요.</small>
         <span class="amount-wrap">
           <input name="amount" inputmode="numeric" autocomplete="off">
           <span class="unit">원</span>
@@ -259,7 +249,7 @@
       <p class="memo-box" id="pay-memo" hidden></p>
       <div class="sheet-cta">
         <button type="button" class="btn subtle" id="pay-edit-item"><svg><use href="#i-edit"/></svg>수정</button>
-        <button type="submit" class="btn primary grow" id="pay-submit">완료로 표시</button>
+        <button type="submit" class="btn primary grow">저장하기</button>
       </div>
     </form>
   </dialog>

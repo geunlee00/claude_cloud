@@ -1,16 +1,14 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const STORAGE_KEY = 'fixed-expenses:v1';
-const PREF_KEY = 'fixed-expenses:prefs';
 
 /* ───────── 데이터 ─────────
  * items:    [{ id, name, amount, cycle: 'monthly'|'yearly', month, day, category, method,
  *              start: 'YYYY-MM', end: 'YYYY-MM'|'', memo, auto, active, icon, color, createdAt }]
- * payments: { 'YYYY-MM': { [itemId]: { paidAt?: ISO 문자열, amount?: 이번 달만 바뀐 금액 } } }
+ * payments: { 'YYYY-MM': { [itemId]: { amount: 그 달에만 바뀐 금액 } } }
  */
 let state = load();
-let prefs = loadPrefs();
 
 function emptyState() {
   return { version: 1, items: [], payments: {} };
@@ -21,10 +19,22 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyState();
     const data = JSON.parse(raw);
-    return isValidState(data) ? data : emptyState();
+    return isValidState(data) ? migrate(data) : emptyState();
   } catch {
     return emptyState();
   }
+}
+
+// 예전 버전의 완료 체크 기록(paidAt)은 더 이상 쓰지 않으므로 정리
+function migrate(data) {
+  for (const [ym, month] of Object.entries(data.payments)) {
+    for (const [id, p] of Object.entries(month)) {
+      if (typeof p?.amount === 'number') month[id] = { amount: p.amount };
+      else delete month[id];
+    }
+    if (!Object.keys(month).length) delete data.payments[ym];
+  }
+  return data;
 }
 
 function save() {
@@ -33,14 +43,6 @@ function save() {
   } catch {
     toast('저장에 실패했어요. 저장 공간을 확인해 주세요.');
   }
-}
-
-function loadPrefs() {
-  try { return { showPaid: false, ...JSON.parse(localStorage.getItem(PREF_KEY) || '{}') }; } catch { return { showPaid: false }; }
-}
-
-function savePrefs() {
-  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch { /* 무시 */ }
 }
 
 function isValidState(d) {
@@ -147,17 +149,15 @@ function paymentOf(ym, id) {
   return state.payments[ym]?.[id];
 }
 
-const isPaid = (ym, id) => !!paymentOf(ym, id)?.paidAt;
-
 function amountFor(item, ym) {
   const p = paymentOf(ym, item.id);
   return p && typeof p.amount === 'number' ? p.amount : item.amount;
 }
 
-// 그 달에 표시할 항목: 사용 중이면서 해당 월에 결제되는 항목 + (사용 중지됐어도) 이미 기록이 있는 항목
+// 그 달에 표시할 항목: 사용 중이면서 해당 월에 결제되는 항목
 function itemsForMonth(ym) {
   return state.items
-    .filter((it) => isDueIn(it, ym) && (it.active || paymentOf(ym, it.id)))
+    .filter((it) => it.active && isDueIn(it, ym))
     .sort((a, b) => a.day - b.day || a.name.localeCompare(b.name, 'ko'));
 }
 
@@ -182,7 +182,6 @@ const $ = (sel) => document.querySelector(sel);
 
 let viewYm = ymOf(new Date());
 let selectedDay = null;
-let popId = null;
 
 function render() {
   renderMonth();
@@ -190,50 +189,50 @@ function render() {
   renderSettings();
 }
 
-function badgeFor(item, ym) {
-  if (isPaid(ym, item.id)) return '';
+const monthTotal = (ym) => itemsForMonth(ym).reduce((s, it) => s + amountFor(it, ym), 0);
+
+// 이번 달이면 오늘 이후(오늘 포함) 결제, 미래 달이면 전부, 지난 달이면 없음
+function isUpcoming(item, ym) {
   const nowYm = ymOf(new Date());
-  if (ym < nowYm) return '<span class="badge red">미납</span>';
-  if (ym > nowYm) return '';
+  if (ym !== nowYm) return ym > nowYm;
+  return daysUntil(dueDate(item, ym)) >= 0;
+}
+
+function badgeFor(item, ym) {
+  if (ym !== ymOf(new Date())) return '';
   const diff = daysUntil(dueDate(item, ym));
-  if (diff < 0) return `<span class="badge red">${-diff}일 지남</span>`;
   if (diff === 0) return '<span class="badge blue">오늘</span>';
-  if (diff <= 3) return `<span class="badge orange">D-${diff}</span>`;
+  if (diff === 1) return '<span class="badge orange">내일</span>';
+  if (diff > 1 && diff <= 3) return `<span class="badge orange">D-${diff}</span>`;
   return '';
 }
 
 function monthRow(item, ym) {
   const p = paymentOf(ym, item.id);
-  const paid = !!p?.paidAt;
-  const amount = amountFor(item, ym);
   const changed = p && typeof p.amount === 'number' && p.amount !== item.amount;
   const sub = [item.method, item.auto && '자동이체', item.cycle === 'yearly' && '연 1회'].filter(Boolean).map(escapeHtml).join(' · ');
   const due = dueDate(item, ym);
-  const meta = paid
-    ? `${new Date(p.paidAt).getMonth() + 1}/${new Date(p.paidAt).getDate()} 완료`
-    : `${due.getMonth() + 1}/${due.getDate()} (${WEEKDAYS[due.getDay()]})`;
+  const past = !isUpcoming(item, ym) && ym === ymOf(new Date());
 
   return `
-    <li class="row ${paid ? 'paid' : ''}" data-id="${item.id}" data-act="pay">
+    <li class="row ${past ? 'past' : ''}" data-id="${item.id}" data-act="amount">
       ${avatarHtml(item)}
       <div class="row-text">
         <div class="row-title"><span class="t">${escapeHtml(item.name)}</span></div>
         <div class="row-sub">${badgeFor(item, ym)}<span>${sub || escapeHtml(item.category) || '&nbsp;'}</span></div>
       </div>
       <div class="row-right">
-        <div class="row-amount ${changed ? 'changed' : ''}">${won(amount)}</div>
-        <div class="row-meta">${meta}</div>
+        <div class="row-amount ${changed ? 'changed' : ''}">${won(amountFor(item, ym))}</div>
+        <div class="row-meta">${due.getMonth() + 1}/${due.getDate()} (${WEEKDAYS[due.getDay()]})</div>
       </div>
-      <button class="check ${paid ? 'on' : ''} ${popId === item.id ? 'pop' : ''}" data-act="toggle"
-        aria-label="${escapeHtml(item.name)} ${paid ? '완료 취소' : '완료로 표시'}" aria-pressed="${paid}">${icon('check')}</button>
     </li>`;
 }
 
-function groupHtml(title, items, ym, { warn = false, total = true } = {}) {
+function groupHtml(title, items, ym) {
   const sum = items.reduce((s, it) => s + amountFor(it, ym), 0);
   return `
     <section class="group">
-      <div class="group-head"><h3 class="${warn ? 'warn' : ''}">${title}</h3>${total ? `<span>${won(sum)}</span>` : ''}</div>
+      <div class="group-head"><h3>${title}</h3><span>${won(sum)}</span></div>
       <ul class="list">${items.map((it) => monthRow(it, ym)).join('')}</ul>
     </section>`;
 }
@@ -243,46 +242,43 @@ function renderMonth() {
   const nowYm = ymOf(new Date());
   const isNow = viewYm === nowYm;
   $('#month-label').innerHTML = `${m}월<small>${y}</small>`;
-  $('#hero-label').textContent = isNow ? '이번 달 남은 금액' : `${m}월 남은 금액`;
+  $('#hero-label').textContent = isNow ? '이번 달 고정지출' : `${m}월 고정지출`;
 
   const items = itemsForMonth(viewYm);
-  const unpaid = items.filter((it) => !isPaid(viewYm, it.id));
-  const paid = items.filter((it) => isPaid(viewYm, it.id));
   const total = items.reduce((s, it) => s + amountFor(it, viewYm), 0);
-  const paidSum = paid.reduce((s, it) => s + amountFor(it, viewYm), 0);
+  const upcoming = items.filter((it) => isUpcoming(it, viewYm));
+  const past = items.filter((it) => !upcoming.includes(it));
+  const upcomingSum = upcoming.reduce((s, it) => s + amountFor(it, viewYm), 0);
 
   // 요약
-  $('#sum-left').textContent = won(total - paidSum);
-  $('#sum-total').textContent = items.length ? `총 ${won(total)} 중 ${won(paidSum)} 냈어요` : '등록된 고정지출이 없어요';
-  const pct = total ? (paidSum / total) * 100 : 0;
-  $('#ring-fill').style.strokeDasharray = `${pct} 100`;
-  $('#ring-fill').style.opacity = pct ? 1 : 0; // 0%일 때 둥근 끝점만 점처럼 보이는 것 방지
-  $('#ring-count').textContent = `${paid.length}/${items.length}`;
-  $('#ring').classList.toggle('done', items.length > 0 && !unpaid.length);
+  $('#sum-total').textContent = won(total);
+  const prevTotal = monthTotal(addMonths(viewYm, -1));
+  const diff = total - prevTotal;
+  let compare = '';
+  if (items.length && prevTotal) {
+    compare = diff === 0
+      ? '<span class="pill">지난달과 같아요</span>'
+      : `<span class="pill ${diff > 0 ? 'up' : 'down'}">지난달보다 ${won(Math.abs(diff))} ${diff > 0 ? '많아요' : '적어요'}</span>`;
+  }
+  const info = !items.length ? '등록된 고정지출이 없어요'
+    : isNow ? `${items.length}건 · 남은 결제 ${won(upcomingSum)}`
+    : `${items.length}건`;
+  $('#hero-sub').innerHTML = `<span>${info}</span>${compare}`;
 
-  // 다음 결제
+  // 다음 결제 (이번 달·미래 달만)
   const next = $('#next-pay');
-  next.hidden = !items.length;
-  next.className = 'next-pay';
-  if (items.length && !unpaid.length) {
-    next.classList.add('all-done');
-    next.dataset.id = '';
-    next.innerHTML = `🎉 ${isNow ? '이번 달' : `${m}월`} 고정지출을 모두 냈어요`;
-  } else if (unpaid.length) {
-    const it = unpaid[0];
+  const it = upcoming[0];
+  next.hidden = !it;
+  if (it) {
     const due = dueDate(it, viewYm);
-    const diff = daysUntil(due);
-    let label;
-    let warn = false;
-    if (viewYm < nowYm) { label = '아직 안 낸 결제'; warn = true; }
-    else if (viewYm > nowYm) label = `첫 결제 · ${dateLabel(due)}`;
-    else if (diff < 0) { label = `결제일 ${-diff}일 지남`; warn = true; }
-    else if (diff === 0) label = '오늘 결제';
-    else label = `다음 결제 · ${diff === 1 ? '내일' : `${diff}일 후`}`;
+    const d = daysUntil(due);
+    const label = !isNow ? `첫 결제 · ${dateLabel(due)}`
+      : d === 0 ? '오늘 결제'
+      : `다음 결제 · ${d === 1 ? '내일' : `${d}일 후`} (${due.getMonth() + 1}/${due.getDate()})`;
     next.dataset.id = it.id;
     next.innerHTML = `
       ${avatarHtml(it)}
-      <span class="np-text"><span class="np-label ${warn ? 'warn' : ''}">${label}</span><span class="np-name">${escapeHtml(it.name)}</span></span>
+      <span class="np-text"><span class="np-label">${label}</span><span class="np-name">${escapeHtml(it.name)}</span></span>
       <span class="np-amount">${won(amountFor(it, viewYm))}</span>
       <svg class="chev"><use href="#i-right"/></svg>`;
   }
@@ -292,35 +288,27 @@ function renderMonth() {
   $('.calendar').hidden = !items.length;
 
   // 날짜 필터
-  if (selectedDay && !items.some((it) => dueDate(it, viewYm).getDate() === selectedDay)) selectedDay = null;
-  const filtered = selectedDay ? items.filter((it) => dueDate(it, viewYm).getDate() === selectedDay) : null;
+  if (selectedDay && !items.some((x) => dueDate(x, viewYm).getDate() === selectedDay)) selectedDay = null;
+  const filtered = selectedDay ? items.filter((x) => dueDate(x, viewYm).getDate() === selectedDay) : null;
   const chip = $('#day-filter');
   chip.hidden = !filtered;
   if (filtered) {
-    chip.innerHTML = `<span>${m}월 ${selectedDay}일 결제 ${filtered.length}건 · ${won(filtered.reduce((s, it) => s + amountFor(it, viewYm), 0))}</span>
+    chip.innerHTML = `<span>${m}월 ${selectedDay}일 결제 ${filtered.length}건 · ${won(filtered.reduce((s, x) => s + amountFor(x, viewYm), 0))}</span>
       <button data-act="clear-day" aria-label="필터 해제">${icon('x')}</button>`;
   }
 
   // 목록
   let html = '';
   if (filtered) {
-    html = `<ul class="list" style="margin-top:12px">${filtered.map((it) => monthRow(it, viewYm)).join('')}</ul>`;
-  } else {
-    const overdue = isNow ? unpaid.filter((it) => daysUntil(dueDate(it, viewYm)) < 0) : viewYm < nowYm ? unpaid : [];
-    const upcoming = unpaid.filter((it) => !overdue.includes(it));
-    if (overdue.length) html += groupHtml(viewYm < nowYm ? `미납 ${overdue.length}건` : `결제일 지남 ${overdue.length}건`, overdue, viewYm, { warn: true });
-    if (upcoming.length) html += groupHtml(`결제 예정 ${upcoming.length}건`, upcoming, viewYm);
-    if (paid.length) {
-      if (prefs.showPaid || !unpaid.length) html += groupHtml(`완료 ${paid.length}건`, paid, viewYm);
-      if (unpaid.length) {
-        html += `<button class="collapse-btn ${prefs.showPaid ? 'open' : ''}" data-act="toggle-paid">
-          ${prefs.showPaid ? '완료한 결제 접기' : `완료한 결제 ${paid.length}건 보기`}${icon('down')}</button>`;
-      }
-    }
+    html = `<ul class="list" style="margin-top:12px">${filtered.map((x) => monthRow(x, viewYm)).join('')}</ul>`;
+  } else if (isNow) {
+    if (upcoming.length) html += groupHtml(`다가오는 결제 ${upcoming.length}건`, upcoming, viewYm);
+    if (past.length) html += groupHtml(`지난 결제 ${past.length}건`, past, viewYm);
+  } else if (items.length) {
+    html = groupHtml(`결제 ${items.length}건`, items, viewYm);
   }
   $('#month-groups').innerHTML = html;
   $('#month-empty').hidden = items.length > 0;
-  popId = null;
 }
 
 function renderCalendar(items) {
@@ -343,10 +331,7 @@ function renderCalendar(items) {
     const list = byDay.get(d) || [];
     const isToday = viewYm === nowYm && d === t.getDate();
     const isPast = viewYm < nowYm || (viewYm === nowYm && d < t.getDate());
-    const dots = list.slice(0, 3).map((it) => {
-      const done = isPaid(viewYm, it.id);
-      return `<i class="dot ${done ? 'paid' : isPast ? 'overdue' : ''}"></i>`;
-    }).join('');
+    const dots = list.slice(0, 3).map((it) => `<i class="dot" style="background:${looksOf(it).color}"></i>`).join('');
     const cls = ['cal-day', dow === 0 && 'sun', dow === 6 && 'sat', isToday && 'today', isPast && 'past',
       list.length && 'has', selectedDay === d && 'selected'].filter(Boolean).join(' ');
     html += list.length
@@ -412,14 +397,21 @@ function renderItems() {
   $('#items-empty').hidden = state.items.length > 0;
 }
 
+// 큰 금액을 좁은 칸에 맞게 줄여 표시 (예: 1,801,300 → 180만)
+function shortWon(n) {
+  n = Math.round(n);
+  if (n >= 100000000) return `${(n / 100000000).toFixed(1).replace(/\.0$/, '')}억`;
+  if (n >= 10000) return `${Math.round(n / 10000).toLocaleString('ko-KR')}만`;
+  return n.toLocaleString('ko-KR');
+}
+
 function renderSettings() {
   const nowYm = ymOf(new Date());
-  const items = itemsForMonth(nowYm);
-  const paid = items.filter((it) => isPaid(nowYm, it.id)).length;
+  const avg = state.items.filter((it) => it.active && isInRange(it, nowYm)).reduce((s, it) => s + monthlyEquivalent(it), 0);
   $('#stats').innerHTML = `
     <div><b>${state.items.filter((it) => it.active).length}</b><span>사용 중 항목</span></div>
-    <div><b>${items.length ? Math.round((paid / items.length) * 100) : 0}%</b><span>이번 달 완료</span></div>
-    <div><b>${Object.keys(state.payments).length}</b><span>기록한 달</span></div>`;
+    <div><b>${shortWon(monthTotal(nowYm))}</b><span>이번 달</span></div>
+    <div><b>${shortWon(avg * 12)}</b><span>1년 합계</span></div>`;
 }
 
 function switchView(view) {
@@ -429,46 +421,12 @@ function switchView(view) {
   window.scrollTo(0, 0);
 }
 
-/* ───────── 완료 체크 ───────── */
-function setPaid(id, ym, paid) {
+/* ───────── 이번 달만 바뀐 금액 ───────── */
+function setMonthAmount(ym, id, amount) {
   const item = state.items.find((it) => it.id === id);
   const month = (state.payments[ym] ||= {});
-  const p = (month[id] ||= {});
-  if (paid) {
-    // 지난 달을 나중에 체크하면 결제일 날짜로 기록, 이번 달이면 오늘로 기록
-    p.paidAt = (ym < ymOf(new Date()) ? dueDate(item, ym) : new Date()).toISOString();
-  } else {
-    delete p.paidAt;
-  }
-  cleanupPayment(ym, id);
-}
-
-function togglePaid(id) {
-  const item = state.items.find((it) => it.id === id);
-  if (!item) return;
-  const ym = viewYm;
-  const prev = paymentOf(ym, id) ? { ...paymentOf(ym, id) } : undefined;
-  const nowPaid = !isPaid(ym, id);
-  setPaid(id, ym, nowPaid);
-  save();
-  if (nowPaid) popId = id;
-  render();
-  if (navigator.vibrate) navigator.vibrate(nowPaid ? 12 : 6);
-
-  toast(nowPaid ? `${item.name} 완료했어요` : `${item.name} 완료를 취소했어요`, () => {
-    const month = (state.payments[ym] ||= {});
-    if (prev) month[id] = prev; else delete month[id];
-    cleanupPayment(ym, id);
-    save();
-    render();
-  });
-}
-
-function cleanupPayment(ym, id) {
-  const month = state.payments[ym];
-  if (!month) return;
-  const p = month[id];
-  if (p && !p.paidAt && typeof p.amount !== 'number') delete month[id];
+  if (amount == null || amount === item.amount) delete month[id];
+  else month[id] = { amount };
   if (!Object.keys(month).length) delete state.payments[ym];
 }
 
@@ -636,7 +594,7 @@ $('#delete-btn').addEventListener('click', () => {
   toast('삭제했어요');
 });
 
-/* ───────── 이번 달 항목 시트 ───────── */
+/* ───────── 이번 달 금액 시트 ───────── */
 const payDialog = $('#pay-dialog');
 const payForm = $('#pay-form');
 let payingId = null;
@@ -645,19 +603,8 @@ function syncPayHint() {
   const it = state.items.find((x) => x.id === payingId);
   if (!it) return;
   const typed = Number(digitsOnly(payForm.amount.value));
-  const saved = amountFor(it, viewYm);
-  const hint = $('#pay-hint');
-  hint.innerHTML = `<span>기본 금액 ${won(it.amount)}</span>` +
-    (payForm.amount.value && typed !== saved ? '<button type="button" data-act="save-amount">금액만 저장</button>' : '');
-}
-
-function saveAmount() {
-  const it = state.items.find((x) => x.id === payingId);
-  const typed = Number(digitsOnly(payForm.amount.value));
-  const month = (state.payments[viewYm] ||= {});
-  const p = (month[payingId] ||= {});
-  if (!payForm.amount.value || typed === it.amount) delete p.amount; else p.amount = typed;
-  cleanupPayment(viewYm, payingId);
+  $('#pay-hint').innerHTML = `<span>기본 금액 ${won(it.amount)}</span>` +
+    (payForm.amount.value && typed !== it.amount ? '<button type="button" data-act="reset-amount">기본 금액으로</button>' : '');
 }
 
 function openPayDialog(id) {
@@ -666,21 +613,17 @@ function openPayDialog(id) {
   payingId = id;
   const { m } = parseYm(viewYm);
   const due = dueDate(it, viewYm);
-  const paid = isPaid(viewYm, id);
   const { icon: ic, color } = looksOf(it);
   const av = $('#pay-avatar');
   av.textContent = ic;
   av.style.setProperty('--c', color);
   $('#pay-title').textContent = it.name;
   $('#pay-desc').textContent = [dateLabel(due), it.method, it.auto && '자동이체'].filter(Boolean).join(' · ');
-  $('#pay-amount-label').textContent = `${m}월 결제 금액`;
+  $('#pay-amount-label').textContent = `${m}월 금액`;
   payForm.amount.value = formatNumberInput(amountFor(it, viewYm));
   const memo = $('#pay-memo');
   memo.hidden = !it.memo;
   memo.textContent = it.memo ? `📝 ${it.memo}` : '';
-  const submit = $('#pay-submit');
-  submit.textContent = paid ? '완료 취소' : '완료로 표시';
-  submit.classList.toggle('done', paid);
   syncPayHint();
   openSheet(payDialog);
 }
@@ -689,20 +632,22 @@ payForm.amount.addEventListener('input', (e) => { e.target.value = formatNumberI
 
 payForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  if (!state.items.some((x) => x.id === payingId)) return payDialog.close();
-  saveAmount();
-  save();
-  payDialog.close();
-  togglePaid(payingId);
-});
-
-$('#pay-hint').addEventListener('click', (e) => {
-  if (!e.target.closest('[data-act="save-amount"]')) return;
-  saveAmount();
+  const it = state.items.find((x) => x.id === payingId);
+  if (!it) return payDialog.close();
+  const before = amountFor(it, viewYm);
+  const typed = payForm.amount.value ? Number(digitsOnly(payForm.amount.value)) : null;
+  setMonthAmount(viewYm, payingId, typed);
   save();
   payDialog.close();
   render();
-  toast('이번 달 금액을 바꿨어요');
+  if (amountFor(it, viewYm) !== before) toast(`${parseYm(viewYm).m}월 ${it.name} 금액을 바꿨어요`);
+});
+
+$('#pay-hint').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-act="reset-amount"]')) return;
+  const it = state.items.find((x) => x.id === payingId);
+  payForm.amount.value = formatNumberInput(it.amount);
+  syncPayHint();
 });
 
 $('#pay-edit-item').addEventListener('click', () => {
@@ -743,7 +688,7 @@ $('#import-input').addEventListener('change', async (e) => {
     if (!isValidState(data)) throw new Error('invalid');
     if (!confirm(`항목 ${data.items.length}개를 불러올까요?\n지금 데이터는 모두 바뀌어요.`)) return;
     delete data.exportedAt;
-    state = { ...emptyState(), ...data };
+    state = migrate({ ...emptyState(), ...data });
     save();
     render();
     toast('불러왔어요');
@@ -781,14 +726,13 @@ document.addEventListener('click', (e) => {
   if (tab) return switchView(tab.dataset.view);
 
   const next = e.target.closest('#next-pay');
-  if (next) { if (next.dataset.id) openPayDialog(next.dataset.id); return; }
+  if (next) return openPayDialog(next.dataset.id);
 
   const act = e.target.closest('[data-act]');
   if (!act) return;
   const id = act.closest('[data-id]')?.dataset.id;
   switch (act.dataset.act) {
-    case 'toggle': togglePaid(id); break;
-    case 'pay': openPayDialog(id); break;
+    case 'amount': openPayDialog(id); break;
     case 'edit': openItemDialog(id); break;
     case 'day': {
       const d = Number(act.dataset.day);
@@ -797,7 +741,6 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'clear-day': selectedDay = null; renderMonth(); break;
-    case 'toggle-paid': prefs.showPaid = !prefs.showPaid; savePrefs(); renderMonth(); break;
   }
 });
 

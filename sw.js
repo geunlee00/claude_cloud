@@ -1,5 +1,5 @@
 // 앱 파일을 캐시해서 오프라인에서도 열리게 함. 파일을 수정하면 CACHE 버전을 올릴 것.
-const CACHE = 'fixed-expenses-v2';
+const CACHE = 'fixed-expenses-v3';
 const ASSETS = [
   './',
   'index.html',

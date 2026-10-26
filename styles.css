@@ -119,20 +119,12 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 
 .label { font-size: 15px; color: var(--text-2); font-weight: 500; }
 .big-num { display: block; font-size: 32px; font-weight: 700; letter-spacing: -.035em; line-height: 1.25; margin: 4px 0 6px; }
-.hero-sub { font-size: 14px; color: var(--text-3); }
+.hero-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 14px; color: var(--text-3); }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 99px; background: var(--surface-2); color: var(--text-2); }
+.pill.up { background: var(--red-soft); color: var(--red); }
+.pill.down { background: var(--primary-soft); color: var(--primary); }
 
-.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hero-text { min-width: 0; }
 
-.ring { position: relative; width: 84px; height: 84px; flex-shrink: 0; }
-.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring circle { fill: none; stroke-width: 9; }
-.ring-track { stroke: var(--surface-2); }
-.ring-fill { stroke: var(--green); stroke-dasharray: 0 100; transition: stroke-dasharray .6s cubic-bezier(.2, .8, .2, 1), opacity .2s; }
-.ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15; }
-.ring-text b { font-size: 17px; font-weight: 700; }
-.ring-text span { font-size: 11px; color: var(--text-3); font-weight: 500; }
-.ring.done .ring-text b { color: var(--green); }
 
 .next-pay {
   display: flex; align-items: center; gap: 12px; width: 100%;
@@ -144,12 +136,11 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .next-pay .np-text { flex: 1; min-width: 0; }
 .next-pay .np-label, .next-pay .np-name { display: block; }
 .next-pay .np-label { font-size: 12px; font-weight: 600; color: var(--primary); }
-.next-pay .np-label.warn { color: var(--red); }
+
 .next-pay .np-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next-pay .np-amount { font-size: 15px; font-weight: 700; }
 .next-pay .chev { width: 18px; height: 18px; color: var(--text-4); }
 
-.next-pay.all-done { justify-content: center; color: var(--green); font-weight: 600; font-size: 15px; background: var(--green-soft); }
 
 /* ───────── 달력 ───────── */
 .calendar { padding: 16px 14px 12px; }
@@ -177,8 +168,7 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .cal-day.selected { background: var(--primary-soft); }
 .cal-day .dots { display: flex; gap: 3px; height: 6px; }
 .cal-day .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
-.cal-day .dot.paid { background: var(--green); }
-.cal-day .dot.overdue { background: var(--red); }
+
 
 .filter-chip {
   display: flex; align-items: center; justify-content: space-between;
@@ -193,7 +183,7 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .group { margin-top: 12px; }
 .group-head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 6px 8px; }
 .group-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-2); }
-.group-head h3.warn { color: var(--red); }
+
 .group-head span { font-size: 14px; color: var(--text-3); font-weight: 500; }
 .group-label { font-size: 14px; color: var(--text-3); font-weight: 600; margin: 22px 6px 8px; }
 
@@ -210,9 +200,9 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .row-amount.changed::before { content: "변경 "; font-size: 11px; font-weight: 600; color: var(--primary); vertical-align: 2px; }
 .row-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
-.row.paid .avatar { filter: grayscale(1); opacity: .5; }
-.row.paid .row-title .t, .row.paid .row-amount { color: var(--text-3); }
 .row.off { opacity: .45; }
+.row.past .row-title .t, .row.past .row-amount { color: var(--text-3); }
+.row.past .avatar { opacity: .6; }
 
 .badge { flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 6px; line-height: 1.4; }
 .badge.red { background: var(--red-soft); color: var(--red); }
@@ -220,27 +210,7 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .badge.blue { background: var(--primary-soft); color: var(--primary); }
 .badge.gray { background: var(--surface-2); color: var(--text-3); }
 
-.check {
-  width: 32px; height: 32px; flex-shrink: 0; margin-right: -4px;
-  border-radius: 50%;
-  display: grid; place-items: center;
-  background: var(--surface-2);
-  color: var(--text-4);
-  transition: background .2s, color .2s, transform .12s;
-}
-.check svg { width: 18px; height: 18px; stroke-width: 2.8; }
-.check:active { transform: scale(.88); }
-.check.on { background: var(--green); color: #fff; }
-.check.pop { animation: pop .35s ease; }
-@keyframes pop { 0% { transform: scale(.8); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
 
-.collapse-btn {
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-  width: 100%; padding: 16px; margin-top: 8px;
-  color: var(--text-3); font-size: 14px; font-weight: 600;
-}
-.collapse-btn svg { width: 18px; height: 18px; transition: transform .2s; }
-.collapse-btn.open svg { transform: rotate(180deg); }
 
 /* 아바타 */
 .avatar {
@@ -302,7 +272,7 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 .btn svg { width: 18px; height: 18px; }
 .btn.primary { background: var(--primary); color: #fff; }
 .btn.primary:active { background: var(--primary-press); }
-.btn.primary.done { background: var(--surface-2); color: var(--text-2); }
+
 .btn.subtle { background: var(--surface-2); color: var(--text-2); }
 .btn.grow { flex: 1; }
 
@@ -390,10 +360,12 @@ main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
 
 /* 금액 */
 .amount-field { display: block; margin: 18px 0 18px; }
+.amount-field .amount-wrap { margin-top: 4px; }
 .amount-wrap { display: flex; align-items: baseline; gap: 4px; border-bottom: 2px solid var(--surface-3); transition: border-color .2s; }
 .amount-wrap:focus-within { border-color: var(--primary); }
 .amount-wrap input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 30px; font-weight: 700; padding: 6px 0; letter-spacing: -.03em; }
 .amount-wrap .unit { font-size: 22px; font-weight: 600; color: var(--text-2); }
+.field-desc { display: block; font-size: 13px; color: var(--text-3); margin-top: 2px; }
 .field-hint { display: flex; align-items: center; justify-content: space-between; min-height: 20px; margin-top: 8px; font-size: 13px; color: var(--text-3); }
 .field-hint button { color: var(--primary); font-weight: 600; font-size: 13px; }
 
